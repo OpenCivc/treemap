@@ -1,0 +1,100 @@
+#!/bin/sh
+
+locale-gen en_US.UTF-8
+echo "LANG=en_US.UTF-8" > /etc/default/locale
+
+# Make the script exit early if any command fails
+set -e
+
+echo 'Acquire::http::Proxy "http://10.64.0.1:3142";' > /etc/apt/apt.conf
+apt-get update
+apt-get install -yq python-software-properties python-setuptools stow git
+
+mkdir -p /usr/local/otm/app
+
+git clone https://github.com/OpenTreeMap/OTM2.git /usr/local/otm/app
+git clone https://github.com/OpenTreeMap/OTM2-tiler.git /usr/local/tiler
+git clone https://github.com/OpenTreeMap/otm2-vagrant.git /otm2-vagrant
+cd otm2-vagrant/
+
+add-apt-repository -y ppa:mapnik/boost
+add-apt-repository -y ppa:mapnik/v2.1.0
+add-apt-repository -y ppa:chris-lea/node.js
+add-apt-repository -y ppa:ubuntugis/ppa
+
+apt-get update
+
+stow -vv -t / configs
+
+# nodejs & redis - needed for django and tiler
+apt-get install -yq nodejs redis-server gettext libgeos-dev libproj-dev libgdal1-dev build-essential python-pip python-dev libfreetype6-dev zlib1g-dev libpq-dev libxml2-dev xvfb firefox libgeos-dev libsigc++-2.0-dev libmapnik-dev mapnik-utils nginx sudo wget
+
+pip install virtualenv
+
+# DB
+apt-get install -yq postgresql postgresql-server-dev-9.1 postgresql-contrib postgresql-9.1-postgis-2.0
+service postgresql start
+
+# Need to drop and recreate cluster to get UTF8 DB encoding
+sudo -u postgres pg_dropcluster --stop 9.1 main
+sudo -u postgres pg_createcluster --start 9.1 main  --locale="en_US.UTF-8"
+sudo -u postgres psql -c "CREATE USER otm SUPERUSER PASSWORD 'password'"
+sudo -u postgres psql template1 -c "CREATE EXTENSION IF NOT EXISTS hstore"
+sudo -u postgres psql -c "CREATE DATABASE otm OWNER otm"
+sudo -u postgres psql otm -c "CREATE EXTENSION IF NOT EXISTS postgis"
+
+cd /usr/local/otm
+virtualenv env
+source env/bin/activate
+
+cd /usr/local/otm/app
+
+/usr/local/otm/env/bin/pip install -r requirements.txt
+/usr/local/otm/env/bin/pip install -r dev-requirements.txt
+/usr/local/otm/env/bin/pip install -r test-requirements.txt
+# init script?
+
+# OTM2 client-side bundle
+npm install
+# Weird issues with newest version of grunt in combination with grunt-browserify
+npm install -g grunt-cli@0.1.9
+grunt --dev
+
+cp /otm2-vagrant/configs/usr/local/otm/app/opentreemap/opentreemap/settings/local_settings.py opentreemap/opentreemap/settings/
+
+# Run South migrations
+/usr/local/otm/env/bin/python opentreemap/manage.py syncdb
+/usr/local/otm/env/bin/python opentreemap/manage.py migrate
+/usr/local/otm/env/bin/python opentreemap/manage.py create_system_user
+
+# Make local directories
+mkdir /usr/local/otm/static
+mkdir /usr/local/otm/media
+chown app:app /usr/local/otm/static
+chown app:app /usr/local/otm/media
+
+# Copy over static files
+/usr/local/otm/env/bin/python opentreemap/manage.py collectstatic --noinput
+
+# ecobenefits - init script
+wget "https://go.googlecode.com/files/go1.2.linux-amd64.tar.gz" -O /tmp/go.tar.gz
+tar -C /usr/local -xzf /tmp/go.tar.gz
+export PATH="$PATH:/usr/local/go/bin"
+export GOPATH="/usr/local/ecoservice"
+cd /usr/local/ecoservice
+go get -v github.com/OpenTreeMap/ecobenefits
+go build github.com/OpenTreeMap/ecobenefits
+
+# tiler
+cd /usr/local/tiler
+npm install
+
+rm /etc/nginx/sites-enabled/default
+ln -s /etc/nginx/sites-available/otm.conf /etc/nginx/sites-enabled/otm
+
+initctl reload-configuration
+
+service otm-unicorn start
+service tiler start
+service ecoservice start
+service nginx start

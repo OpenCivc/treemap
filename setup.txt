@@ -6,16 +6,39 @@ echo "LANG=en_US.UTF-8" > /etc/default/locale
 # Make the script exit early if any command fails
 set -e
 
-echo 'Acquire::http::Proxy "http://10.64.0.1:3142";' > /etc/apt/apt.conf
+echo 'Acquire::http::Proxy "http://10.73.0.1:3142";' > /etc/apt/apt.conf
 apt-get update
-apt-get install -yq python-software-properties python-setuptools stow git
+apt-get install -yq python-software-properties python-setuptools git software-properties-common
+
+add-apt-repository -y ppa:chris-lea/node.js
+apt-get update
 
 mkdir -p /usr/local/otm/app
 
-git clone https://github.com/OpenTreeMap/OTM2.git /usr/local/otm/app
-git clone https://github.com/OpenTreeMap/OTM2-tiler.git /usr/local/tiler
-git clone https://github.com/OpenTreeMap/otm2-vagrant.git /otm2-vagrant
-cd otm2-vagrant/
+git clone https://github.com/OpenTreeMap/otm-core.git /usr/local/otm/app
+git clone https://github.com/OpenTreeMap/otm-tiler.git /usr/local/tiler
+git clone https://github.com/OpenTreeMap/otm-ecoservice.git /usr/local/ecoservice
+git clone https://github.com/OpenCivc/treemap.git /treemap
+cd /treemap
+
+cp -rTv --remove-destination /treemap/config /
+
+# Stop all the services if they are already running
+service otm-unicorn stop || true
+service tiler stop || true
+service ecoservice stop || true
+service celeryd stop || true
+
+# nodejs & redis - needed for django and tiler
+apt-get install -yq nodejs redis-server
+
+# Django + GeoDjango
+apt-get install -yq gettext libgeos-dev libproj-dev libgdal1-dev build-essential python-pip python-dev
+
+# DB
+apt-get install -yq postgresql postgresql-server-dev-9.3 postgresql-contrib postgresql-9.3-postgis-2.1
+service postgresql start
+
 
 add-apt-repository -y ppa:mapnik/boost
 add-apt-repository -y ppa:mapnik/v2.1.0

@@ -17,7 +17,7 @@ nohup /usr/local/otm/env/bin/gunicorn -w 2 -b "0.0.0.0:12000" opentreemap.wsgi:a
 # create user in web UI
 
 cd /usr/local/otm/app/opentreemap
-source ../../env/bin/activate
+#source ../../env/bin/activate
 python manage.py create_instance Asheville --url_name=asheville --user=demo --center=-82.5558,35.5800
 
 curl "http://opendataserver.ashevillenc.gov/geoserver/ows?service=WFS&request=GetFeature&srsName=EPSG:4326&typeName=coagis:coa_asheville_tree_map_trees_view&maxFeatures=1000000&outputFormat=json" -o ows.json
